@@ -16,9 +16,21 @@ Sequence staff # 0
 
 ## Sequence (.txt) Comparison
 
-Compares two sequences generated and determines if they are equivalent. Slurs and ties are treated as the same.
+Compares sequences generated and determines if they are equivalent. Uses an output and groundtruth directory to determine accuracy. Slurs and ties are treated as the same.
 
 ### TODO
 - [ ] Make robust to different orders of articulation
 - [ ] How to handle different voice numbers, but same notes
 - [ ] Think about which staves dynamic/tempo/other should go to
+
+## How to Run
+
+To run the MusicXML to Sequence, run the following  
+```
+python main.py -input <input_dir> -output <output_dir>
+```
+
+To run the Sequence Comparison, run the following  
+```
+python main.py -c -output <output_dir> -truth <groundtruth_dir>
+```

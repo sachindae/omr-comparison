@@ -1,4 +1,4 @@
-# musicxml-to-sequence
+# omr-comparison
 Takes input MusicXML files and generates sequence (.txt) of symbols. Also compares sequences (.txt) genereated by the following and determines if they are equal. To be used in OMR research to measure accuracy of commerical software/academic papers for any kind of music score (i.e monophonic or polyphonic).
 
 ## MusicXML (.xml) to Sequence (.txt)

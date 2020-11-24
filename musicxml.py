@@ -36,7 +36,8 @@ class MusicXML():
             print()
             out_file.write('')
             for num, staff in enumerate(staves):
-                out_file.write(('Sequence staff # ' + str(num) + '\n' + staff + '\n'))
+                #out_file.write(('Sequence staff # ' + str(num) + '\n' + staff + '\n'))
+                out_file.write((staff + '\n'))
                 print('Sequence staff #', num)
                 print(staff,'\n')
             out_file.write('')
@@ -72,6 +73,7 @@ class MusicXML():
             # Check for bad MusicXML
             if part_list_idx == -1 or part_idx == -1:
                 print('MusicXML file:', self.input_file,' missing <part-list> or <part>')
+                return ['']
                 sys.exit(0)
 
             # Get number of staves in the MusicXML
@@ -82,13 +84,17 @@ class MusicXML():
             staves = ['' for x in range(num_staves)]
 
             # Read each measure
-            for i, measure in enumerate(root[part_idx]):
+            r_iter = iter(root[part_idx])
+            for i, measure in enumerate(r_iter):
 
                 # Gets the symbol sequence of each staff in measure
-                measure_staves = self.read_measure(measure, num_staves, i)
+                measure_staves, skip = self.read_measure(measure, num_staves, i)
 
-                for i in range(num_staves):
-                    staves[i] += measure_staves[i]
+                for j in range(num_staves):
+                    staves[j] += measure_staves[j]
+
+                for j in range(skip-1):
+                    next(r_iter)
 
         return staves
 
@@ -101,6 +107,7 @@ class MusicXML():
         m = Measure(measure, num_staves)
 
         staves = ['' for x in range(num_staves)]
+        skip = 0
 
         # Iterate through all elements in measure
         for elem in measure:
@@ -108,7 +115,8 @@ class MusicXML():
             r = ['' for x in range(num_staves)]
 
             if elem.tag == 'attributes':
-                r = m.parse_attributes(elem)
+                # Skip is number of measures to skip for multirest
+                r,skip = m.parse_attributes(elem)
             elif elem.tag == 'note':
                 r = m.parse_note(elem)
             elif elem.tag == 'direction':
@@ -117,11 +125,17 @@ class MusicXML():
             for i in range(num_staves):
                 staves[i] += r[i]
 
+            # Skip rest of measure if multirest
+            if skip > 0:
+                break
+
         # Add measure separator to each staff
         for i in range(num_staves):
-            staves[i] = '|' + str(num) + '| ' + staves[i] 
+            #staves[i] = '|' + str(num) + '| ' + staves[i] 
+            #staves[i] = 'barline ' + staves[i] 
+            staves[i] = staves[i] + 'barline '
 
-        return staves
+        return staves, skip
 
     def check_correctness(self):
 
@@ -148,6 +162,7 @@ class MusicXML():
                     return 0
 
                 for j in range(len(out_split)):
+                    # Treat slur and tie as equivalent
                     if out_split[j] != gt_split[j] and\
                         ('slur' not in out_split[j] and 'tie' not in out_split[j]) and\
                            ('slur' not in gt_split[j] and 'tie' not in gt_split[j]):
@@ -155,6 +170,83 @@ class MusicXML():
 
         return 1
 
+    def edit_distance(self):
+
+        """
+        Compares output and groundtruth files and returns
+        1 if correct, 0 otherwise
+        """
+
+        edit_dist = 0
+
+        with open(self.output_file, 'r') as output_file, open(self.gt_file, 'r') as gt_file:
+
+            out_lines = output_file.readlines()
+            gt_lines = gt_file.readlines()
+
+            num_symbols = 0
+
+            # Go through all lines
+            for i in range(len(out_lines)):
+                # Skip comparing sequence staff line
+                if 'Sequence staff' in gt_lines[i]:
+                    continue
+
+                out_split = out_lines[i].split()
+                gt_split = gt_lines[i].split()
+
+                num_symbols += len(gt_split)    # for calculating symbol error rate
+
+                _a = [symbol for symbol in out_split if symbol != '\n' and symbol != -1]
+                _b = [symbol for symbol in gt_split if symbol != '\n' and symbol != -1]
+
+                ed = self.levenshtein(_a,_b)
+                
+                # Account for barline at end (don't use when checking CRNN output)
+                #if ed == 1 and out_split[-1] == 'barline' and gt_split[-1] != 'barline':
+                #    ed = 0
+                
+                edit_dist += ed
+                
+                staff_num = (i + 1) // 2
+                print('Edit dist (staff #%d): %d' % (staff_num, ed))
+
+                '''
+                if len(out_split) != len(gt_split):
+                    return 0
+
+                for j in range(len(out_split)):
+                    # Treat slur and tie as equivalent
+                    if out_split[j] != gt_split[j] and\
+                        ('slur' not in out_split[j] and 'tie' not in out_split[j]) and\
+                           ('slur' not in gt_split[j] and 'tie' not in gt_split[j]):
+                        return 0
+                '''
+
+        return edit_dist, num_symbols
+
+    def levenshtein(self,a,b):
+        "Computes the Levenshtein distance between a and b."
+        n, m = len(a), len(b)
+
+        #print(a)
+        #print(b)
+
+        if n > m:
+            a,b = b,a
+            n,m = m,n
+
+        current = range(n+1)
+        for i in range(1,m+1):
+            previous, current = current, [i]+[0]*n
+            for j in range(1,n+1):
+                add, delete = previous[j]+1, current[j-1]+1
+                change = previous[j-1]
+                if a[j-1] != b[i-1]:
+                    change = change + 1
+                current[j] = min(add, delete, change)
+
+        return current[n]
 
     def compare(self):
 

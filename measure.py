@@ -4,6 +4,9 @@ class Measure:
 
         self.measure = measure
         self.num_staves = num_staves
+        self.beats = 4
+        self.beat_type = 4
+
 
     def parse_attributes(self, attributes):
         
@@ -19,12 +22,13 @@ class Measure:
                 #sequence += 'keySignature-' + str(abs(int(attribute[0].text))) + ('sharps' if sharps else 'flats') + ' '
                 sequence += 'keySignature-' + self.num_sharps_flats_to_key(int(attribute[0].text)) + ' '
 
-
             elif attribute.tag == 'time':
                 # Top and bottom num
                 sequence += 'timeSignature-' + attribute[0].text + '/' + attribute[1].text + ' '
+                self.beats = int(attribute[0].text)
+                self.beat_type = int(attribute[1].text)
 
-            elif attribute.tag == 'clef':
+            elif attribute.tag == 'clef' and ('number' not in attribute.attrib or attribute.attrib['number'] == '1'):
                 # Clef and line (add this first)
                 sequence = 'clef-' + attribute[0].text + attribute[1].text + ' ' + sequence
 
@@ -39,6 +43,7 @@ class Measure:
     def parse_note(self, note):
 
         sequence = ['' for x in range(self.num_staves)]
+        cur_rest = False # for differentiating note vs rest
 
         # Check that note is printed
         if 'print-object' in note.attrib and note.attrib['print-object'] == 'no':
@@ -49,10 +54,18 @@ class Measure:
         for e in note:
             if e.tag == 'staff':
                 staff = int(e.text) - 1
-            #if e.tag == 'voice':
-            #    voice = int(e.text)
+            if e.tag == 'voice':
+                voice = int(e.text)
+                # Only do voice 1 for now
+                if voice != 1:
+                    return sequence
             if e.tag == 'dot':
                 has_dot = True
+            # Skip if chord TODO: remove this for polyphonic
+            if e.tag == 'chord':
+                return sequence
+
+        
 
         # Iterate through all elements in note obj
         for elem in note:
@@ -72,24 +85,35 @@ class Measure:
             if elem.tag == 'rest':
                 # Check if measure rest or has a type
                 if 'measure' in elem.attrib and elem.attrib['measure'] == 'yes':
-                    sequence[staff] += 'rest_' + 'measure' + ' '#'-v' + str(voice) + ' '
+                    # Convert rest-measure to note depending on time signature
+                    #sequence[staff] += 'rest-' + 'measure' + ' '#'-v' + str(voice) + ' '
+                    sequence[staff] += self.rest_measure_to_note() + ' '
                 else:
                     sequence[staff] += 'rest' 
+                cur_rest = True
 
             elif elem.tag == 'type':
                 # Length of note
                 dot = '. ' if has_dot else ' '
                 duration = 'sixteenth' if elem.text == '16th' else \
                            'thirty_second' if elem.text == '32nd' else \
+                           'sixty_fourth' if elem.text == '64th' else \
+                           'hundred_twenty_eighth' if elem.text == '128th' else \
                             elem.text
-                sequence[staff] += '_' + duration + dot#'-v' + str(voice) + ' '
+                if cur_rest:
+                    sequence[staff] += '-' + duration + dot#'-v' + str(voice) + ' '
+                    cur_rest = False
+                else:
+                    sequence[staff] += '_' + duration + dot#'-v' + str(voice) + ' '
 
             elif elem.tag == 'chord':
                 # Indicate if chord
-                sequence[staff] += '+ '
+                pass
+                #sequence[staff] += '+ '
 
             elif elem.tag == 'notations':
                 # Articulations
+                pass
                 sequence[staff] += self.parse_notations(elem)
 
         return sequence
@@ -107,6 +131,8 @@ class Measure:
         # Iterate through all elements in direction obj
         for elem in direction:
 
+            pass
+            '''
             if elem.tag == 'direction-type':
 
                 if elem[0].tag == 'dynamics':
@@ -120,6 +146,7 @@ class Measure:
                 if 'tempo' in elem.attrib:
                     pass # don't show tempo for now
                     #sequence[staff] += elem.attrib['tempo'] + '-tempo' + ' '
+            '''
 
         return sequence
 
@@ -131,15 +158,21 @@ class Measure:
         for n in notation:
 
             if n.tag == 'tied':
-                sequence += 'tie-' +  n.attrib['type'] + ' '
+                #sequence += 'tie-' +  n.attrib['type'] + ' ' (tie start/stop)
+
+                # For jorge-model sequence
+                if n.attrib['type'] == 'start':
+                    sequence += 'tie' + ' '
 
             elif n.tag == 'slur':
-                sequence += 'slur-' +  n.attrib['type'] + ' '
+                pass
+                #sequence += 'slur-' +  n.attrib['type'] + ' '
         
             elif n.tag == 'articulations':
+                pass
                 # Go through all articulations
-                for articulation in n:
-                    sequence += articulation.tag + ' '
+                #for articulation in n:
+                #    sequence += articulation.tag + ' '
 
         return sequence
 
@@ -169,3 +202,25 @@ class Measure:
                    -5: 'DbM', -6: 'GbM', -7: 'CbM'}
 
         return mapping[num]
+
+    def rest_measure_to_note(self):
+
+        """
+        Converts rest-measure to coresponding value
+        based on time signature
+        """
+
+        type_map = {
+            '1': 'whole', '2': 'half', '4': 'quarter', '8': 'eighth', '12': 'eighth.', '16': 'sixteenth', 
+            '32': 'thirthy_second', '48': 'thirthy_second.',
+        }
+
+        note_type = type_map[str(self.beat_type)]
+
+        # TODO: Make this actually work
+        if self.beats == 4:
+            return 'rest-whole'
+        elif self.beats == 3:
+            return 'rest-half.'
+        else: # 2/4 time sig
+            return 'rest-half'

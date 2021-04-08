@@ -68,7 +68,8 @@ class MusicXML():
                 if child.tag == 'part-list':
                     part_list_idx = i
                 elif child.tag == 'part':
-                    part_idx = i
+                    # Choose 1st part only to generate sequence
+                    part_idx = i if part_idx == -1 else part_idx
 
             # Check for bad MusicXML
             if part_list_idx == -1 or part_idx == -1:
@@ -178,52 +179,74 @@ class MusicXML():
         """
 
         edit_dist = 0
+        misaligned = False
 
-        with open(self.output_file, 'r') as output_file, open(self.gt_file, 'r') as gt_file:
+        try:
+            with open(self.output_file, 'r') as output_file, open(self.gt_file, 'r') as gt_file:
 
-            out_lines = output_file.readlines()
-            gt_lines = gt_file.readlines()
+                out_lines = output_file.readlines()
+                gt_lines = [g.strip() for g in gt_file.readlines()]
 
-            num_symbols = 0
+                num_symbols = 0
+                bd = 0
+                # Go through all lines (for polyphony)
+                for i in range(len(out_lines)):
+                    # Skip comparing sequence staff line
+                    if 'Sequence staff' in gt_lines[i]:
+                        continue
 
-            # Go through all lines
-            for i in range(len(out_lines)):
-                # Skip comparing sequence staff line
-                if 'Sequence staff' in gt_lines[i]:
-                    continue
+                    out_split = out_lines[i].split()
+                    gt_split = gt_lines[i].split()
 
-                out_split = out_lines[i].split()
-                gt_split = gt_lines[i].split()
+                    #print('Out:',out_split)
+                    #print('Gt:',gt_split)
 
-                num_symbols += len(gt_split)    # for calculating symbol error rate
+                    num_symbols += len(gt_split)    # for calculating symbol error rate
+                    misaligned = 'misaligned' in out_lines[i]   # for ensembling
 
-                _a = [symbol for symbol in out_split if symbol != '\n' and symbol != -1]
-                _b = [symbol for symbol in gt_split if symbol != '\n' and symbol != -1]
+                    _a = [symbol for symbol in out_split if symbol != '\n' and symbol != -1]
+                    _b = [symbol for symbol in gt_split if symbol != '\n' and symbol != -1]
 
-                ed = self.levenshtein(_a,_b)
-                
-                # Account for barline at end (don't use when checking CRNN output)
-                #if ed == 1 and out_split[-1] == 'barline' and gt_split[-1] != 'barline':
-                #    ed = 0
-                
-                edit_dist += ed
-                
-                staff_num = (i + 1) // 2
-                print('Edit dist (staff #%d): %d' % (staff_num, ed))
+                    ed = self.levenshtein(_a,_b)
+                    
+                    # Account for barline at end (don't use when checking CRNN output)
+                    #if ed == 1 and out_split[-1] == 'barline' and gt_split[-1] != 'barline':
+                    #    ed = 0
+                    
+                    edit_dist += ed
+                    
+                    staff_num = (i + 1) // 2
+                    
+                    if ed == 1:
+                        pass
+                        #print(self.output_file)
+                        #print('Edit dist (staff #%d): %d' % (staff_num, ed))
+                        
+                        if _a[-1] == 'barline' and _b[-1] != 'barline' or \
+                        _a[-1] != 'barline' and _b[-1] == 'barline':
+                            #print('Barline diff') 
+                        #   print(self.output_file)
+                            bd = 1
+                            #print(_a)
+                            #print(_b)
+                        
 
-                '''
-                if len(out_split) != len(gt_split):
-                    return 0
-
-                for j in range(len(out_split)):
-                    # Treat slur and tie as equivalent
-                    if out_split[j] != gt_split[j] and\
-                        ('slur' not in out_split[j] and 'tie' not in out_split[j]) and\
-                           ('slur' not in gt_split[j] and 'tie' not in gt_split[j]):
+                    '''
+                    if len(out_split) != len(gt_split):
                         return 0
-                '''
 
-        return edit_dist, num_symbols
+                    for j in range(len(out_split)):
+                        # Treat slur and tie as equivalent
+                        if out_split[j] != gt_split[j] and\
+                            ('slur' not in out_split[j] and 'tie' not in out_split[j]) and\
+                            ('slur' not in gt_split[j] and 'tie' not in gt_split[j]):
+                            return 0
+                    '''
+        except FileNotFoundError:
+            print('Missing:',self.output_file, self.gt_file)
+            return -1, 1, 0, False
+        #print('Found:',self.output_file, self.gt_file)
+        return edit_dist, num_symbols, bd, misaligned
 
     def levenshtein(self,a,b):
         "Computes the Levenshtein distance between a and b."
@@ -247,6 +270,46 @@ class MusicXML():
                 current[j] = min(add, delete, change)
 
         return current[n]
+
+    def get_wrong_symbol(self):
+        """
+        Goes through groudn truth and actual,
+        finds the wrong symbol (assuming only 1 off)
+        """
+
+        with open(self.output_file, 'r') as output_file, open(self.gt_file, 'r') as gt_file:
+
+            out_lines = output_file.readlines()
+            gt_lines = gt_file.readlines()
+
+            # Go through all lines (for polyphony)
+            for i in range(len(out_lines)):
+                # Skip comparing sequence staff line
+                if 'Sequence staff' in gt_lines[i]:
+                    continue
+
+                out_split = out_lines[i].split()
+                gt_split = gt_lines[i].split()
+
+                _a = [symbol for symbol in out_split if symbol != '\n' and symbol != -1]
+                _b = [symbol for symbol in gt_split if symbol != '\n' and symbol != -1]
+
+                if len(_a) > len(_b):   # out longer than ground truth (add/delete)
+                    for i in range(len(_b)):
+                        if _a[i] != _b[i]:
+                            return _a[i], 'del'#_b[i]
+                    return _a[-1], 'del'
+                elif len(_a) < len(_b): # out shorter than ground truth (add/delete)
+                    for i in range(len(_a)):
+                        if _a[i] != _b[i]:
+                            return _b[i], 'add'#_b[i]
+                    return _b[-1], 'add'
+                else:                   # out same length as groudn truth (change)
+                    for i in range(len(_a)):
+                        if _a[i] != _b[i]:
+                            return _a[i], _b[i]
+
+        return -1
 
     def compare(self):
 

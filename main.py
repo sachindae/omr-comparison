@@ -79,11 +79,13 @@ if __name__ == '__main__':
 
             # Create a MusicXML object for comparing ground truth
             output_path = os.path.join(args.output, file_name)
+            '''
             if file_name.split('-')[1].startswith('0'):
                 if file_name.split('-')[1].startswith('00'):
                     file_name = file_name.split('-')[0] + '-' + file_name.split('-')[1][2:]
                 else:
                     file_name = file_name.split('-')[0] + '-' + file_name.split('-')[1][1:]
+            '''
             gt_path = os.path.join(args.truth, file_name)
             musicxml_obj = MusicXML(output_file=output_path, gt_file=gt_path)
 
@@ -130,6 +132,8 @@ if __name__ == '__main__':
 
             if misaligned:
                 misaligned_preds.append(file_name)
+
+            print(edit_dist, num_symbols)
 
             total_ed += edit_dist
             total_symbols += num_symbols
